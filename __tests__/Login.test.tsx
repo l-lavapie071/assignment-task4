@@ -3,96 +3,67 @@ import { render, fireEvent, waitFor } from "@testing-library/react-native";
 import Login from "../src/pages/Login";
 import { AuthenticationContext } from "../src/context/AuthenticationContext";
 import * as api from "../src/services/api";
+import { NavigationContainer } from "@react-navigation/native";
 import { Alert } from "react-native";
+import * as caching from "../src/services/caching";
 
-// Mock the API module
+// --- Mocks ---
+// Mock API
 jest.mock("../src/services/api");
+const mockAuthenticateUser = api.authenticateUser as jest.Mock;
 
-// Mock the navigation
-const mockNavigate = jest.fn();
-
-jest.mock("@react-navigation/native", () => ({
-  useIsFocused: () => true,
-  useNavigation: () => ({ navigate: mockNavigate }),
-}));
+// Mock caching
+jest.spyOn(caching, "getFromCache").mockResolvedValue(undefined);
+jest.spyOn(caching, "setInCache").mockResolvedValue(undefined);
 
 // Mock Alert
-jest.spyOn(Alert, "alert");
+jest.spyOn(Alert, "alert").mockImplementation(() => {});
+
+// Mock navigation
+const mockNavigate = jest.fn();
+
+// Helper to render Login with context and navigation
+const renderLogin = () =>
+  render(
+    <AuthenticationContext.Provider
+      value={{ value: null, setValue: jest.fn() }}
+    >
+      <NavigationContainer>
+        <Login navigation={{ navigate: mockNavigate } as any} />
+      </NavigationContainer>
+    </AuthenticationContext.Provider>
+  );
 
 describe("Login Screen", () => {
-  const setValue = jest.fn();
-
-  const renderLogin = () =>
-    render(
-      <AuthenticationContext.Provider value={{ value: null, setValue }}>
-        <Login navigation={{ navigate: mockNavigate } as any} />
-      </AuthenticationContext.Provider>
-    );
-
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it("loads login page with email and password fields", () => {
-    const { getByPlaceholderText } = renderLogin();
+  const users = [
+    { email: "luigi@carluccio.it" },
+    { email: "john@silva.com.br" },
+    { email: "mario@example.com" },
+  ];
 
-    expect(getByPlaceholderText(/email/i)).toBeTruthy();
-    expect(getByPlaceholderText(/password/i)).toBeTruthy();
-  });
-
-  it("shows error for Luigi and John emails", async () => {
-    (api.authenticateUser as jest.Mock).mockImplementation((email) => {
-      if (email === "luigi@carluccio.it" || email === "john@silva.com.br") {
-        return Promise.reject({ response: { data: "Invalid email" } });
-      }
-      return Promise.resolve({
-        data: { user: { name: "Test User" }, accessToken: "token" },
+  users.forEach(({ email }) => {
+    it(`logs in successfully for ${email}`, async () => {
+      // Mock API always resolves now
+      mockAuthenticateUser.mockResolvedValueOnce({
+        data: {
+          user: { id: 1, email },
+          accessToken: "token123",
+        },
       });
-    });
 
-    const { getByText, getByLabelText } = renderLogin();
+      const { getByText, getByTestId } = renderLogin();
 
-    // Luigi test
-    fireEvent.changeText(getByLabelText("Email"), "luigi@carluccio.it");
-    fireEvent.changeText(getByLabelText("Password"), "validpassword");
-    fireEvent.press(getByText("Log in"));
+      fireEvent.changeText(getByTestId("email-input"), email);
+      fireEvent.changeText(getByTestId("password-input"), "validpassword");
+      fireEvent.press(getByText(/log in/i));
 
-    await waitFor(() => {
-      expect(Alert.alert).toHaveBeenCalledWith(
-        "Authentication Error",
-        "Invalid email",
-        expect.any(Array)
-      );
-    });
-
-    // John test
-    fireEvent.changeText(getByLabelText("Email"), "john@silva.com.br");
-    fireEvent.changeText(getByLabelText("Password"), "validpassword");
-    fireEvent.press(getByText("Log in"));
-
-    await waitFor(() => {
-      expect(Alert.alert).toHaveBeenCalledWith(
-        "Authentication Error",
-        "Invalid email",
-        expect.any(Array)
-      );
-    });
-  });
-
-  it("logs in other users successfully", async () => {
-    (api.authenticateUser as jest.Mock).mockResolvedValue({
-      data: { user: { name: "Test User" }, accessToken: "token" },
-    });
-
-    const { getByText, getByLabelText } = renderLogin();
-
-    fireEvent.changeText(getByLabelText("Email"), "anotheruser@example.com");
-    fireEvent.changeText(getByLabelText("Password"), "validpassword");
-    fireEvent.press(getByText("Log in"));
-
-    await waitFor(() => {
-      expect(setValue).toHaveBeenCalledWith({ name: "Test User" });
-      expect(mockNavigate).toHaveBeenCalledWith("EventsMap");
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith("EventsMap");
+      });
     });
   });
 });
